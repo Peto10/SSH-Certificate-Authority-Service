@@ -1,3 +1,4 @@
 bin/*
-certs/*
+certs/ca-key-pair/*
+certs/https/*
 .env

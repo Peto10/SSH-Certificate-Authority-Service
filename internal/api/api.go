@@ -7,11 +7,18 @@ import (
 	"strings"
 	"fmt"
 	"golang.org/x/crypto/ssh"
+	"crypto/rand"
+	"time"
+)
+
+const (
+	certValidityDuration = 30 * time.Minute
 )
 
 type Controller struct {
 	Log *slog.Logger
-	ValidTokens map[string]struct{}
+	allowedTokens map[string][]string
+	caSigner      ssh.Signer
 }
 
 type requestBody struct {
@@ -22,13 +29,12 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-type signResponse struct {
-	Message    string `json:"message,omitempty"`
+type successResponse struct {
 	SignedCert string `json:"signed_cert,omitempty"`
 }
 
-func NewController(logger *slog.Logger, validTokens map[string]struct{}) *Controller {
-	return &Controller{Log: logger, ValidTokens: validTokens}
+func NewController(logger *slog.Logger, allowedTokens map[string][]string, caSigner ssh.Signer) *Controller {
+	return &Controller{Log: logger, allowedTokens: allowedTokens, caSigner: caSigner}
 }
 
 func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +42,7 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 
 	authToken := r.Header.Get("Authorization")
 	fmt.Println("Authorization token received:", authToken)
-	isValid := c.validateAuthToken(authToken)
+	principals, isValid := c.getPrincipals(authToken)
 	if !isValid{
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(errorResponse{Error: "access token not valid"})
@@ -64,20 +70,48 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Println("Sign endpoint not yet implemented")	
-	// TODO: implement signing logic
-	w.WriteHeader(http.StatusNotImplemented)
-	json.NewEncoder(w).Encode(signResponse{Message: "Sign endpoint not yet implemented"})
+	signedCert, err := signUserKey(pubKey, c.caSigner, principals)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(errorResponse{Error: "failed to sign certificate"})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	certBytes := ssh.MarshalAuthorizedKey(signedCert)
+	json.NewEncoder(w).Encode(successResponse{SignedCert: string(certBytes)})
 }
 
-func (c *Controller) validateAuthToken(token string) bool {
+func (c *Controller) getPrincipals(token string) ([]string, bool) {
 	if strings.HasPrefix(token, "Bearer ") {
 		token = strings.TrimPrefix(token, "Bearer ")
 	} else {
-		return false
+		return nil, false
 	}
 	fmt.Println("Validating token:", token)
-	fmt.Println("Valid tokens are:", c.ValidTokens)
-	_, exists := c.ValidTokens[token]
-	return exists
+	fmt.Println("Valid tokens are:", c.allowedTokens)
+	principals, exists := c.allowedTokens[token]
+	return principals, exists
+}
+
+func signUserKey(
+    userPubKey ssh.PublicKey,
+    caSigner ssh.Signer,
+	principals []string,
+) (*ssh.Certificate, error) {
+
+    cert := &ssh.Certificate{
+        Key:             userPubKey,
+        CertType:        ssh.UserCert,
+        Serial:          uint64(time.Now().UnixNano()),
+        ValidPrincipals: principals,
+        ValidAfter:      uint64(time.Now().Unix()),
+        ValidBefore:     uint64(time.Now().Add(certValidityDuration).Unix()),
+    }
+
+    if err := cert.SignCert(rand.Reader, caSigner); err != nil {
+        return nil, err
+    }
+
+    return cert, nil
 }
