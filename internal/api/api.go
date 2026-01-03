@@ -1,14 +1,14 @@
 package api
 
 import (
-	"encoding/json"
-	"net/http"
-	"log/slog"
-	"strings"
-	"fmt"
-	"golang.org/x/crypto/ssh"
 	"crypto/rand"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"strings"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -16,7 +16,7 @@ const (
 )
 
 type Controller struct {
-	Log *slog.Logger
+	Log           *slog.Logger
 	allowedTokens map[string][]string
 	caSigner      ssh.Signer
 }
@@ -41,9 +41,9 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	authToken := r.Header.Get("Authorization")
-	fmt.Println("Authorization token received:", authToken)
 	principals, isValid := c.getPrincipals(authToken)
-	if !isValid{
+	if !isValid {
+		c.Log.Warn("authentication failed", "reason", "invalid access token")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(errorResponse{Error: "access token not valid"})
 		return
@@ -64,7 +64,7 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if (pubKey.Type() != ssh.KeyAlgoED25519) {
+	if pubKey.Type() != ssh.KeyAlgoED25519 {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(errorResponse{Error: "only ed25519 keys are supported"})
 		return
@@ -77,6 +77,16 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Log certificate issuance details
+	issuedAt := time.Unix(int64(signedCert.ValidAfter), 0)
+	expiresAt := time.Unix(int64(signedCert.ValidBefore), 0)
+	c.Log.Info("certificate issued",
+		"issued_at", issuedAt.Format(time.RFC3339),
+		"principals", principals,
+		"expires_at", expiresAt.Format(time.RFC3339),
+		"serial", signedCert.Serial,
+	)
+
 	w.WriteHeader(http.StatusOK)
 	certBytes := ssh.MarshalAuthorizedKey(signedCert)
 	json.NewEncoder(w).Encode(successResponse{SignedCert: string(certBytes)})
@@ -88,30 +98,28 @@ func (c *Controller) getPrincipals(token string) ([]string, bool) {
 	} else {
 		return nil, false
 	}
-	fmt.Println("Validating token:", token)
-	fmt.Println("Valid tokens are:", c.allowedTokens)
 	principals, exists := c.allowedTokens[token]
 	return principals, exists
 }
 
 func signUserKey(
-    userPubKey ssh.PublicKey,
-    caSigner ssh.Signer,
+	userPubKey ssh.PublicKey,
+	caSigner ssh.Signer,
 	principals []string,
 ) (*ssh.Certificate, error) {
 
-    cert := &ssh.Certificate{
-        Key:             userPubKey,
-        CertType:        ssh.UserCert,
-        Serial:          uint64(time.Now().UnixNano()),
-        ValidPrincipals: principals,
-        ValidAfter:      uint64(time.Now().Unix()),
-        ValidBefore:     uint64(time.Now().Add(certValidityDuration).Unix()),
-    }
+	cert := &ssh.Certificate{
+		Key:             userPubKey,
+		CertType:        ssh.UserCert,
+		Serial:          uint64(time.Now().UnixNano()),
+		ValidPrincipals: principals,
+		ValidAfter:      uint64(time.Now().Unix()),
+		ValidBefore:     uint64(time.Now().Add(certValidityDuration).Unix()),
+	}
 
-    if err := cert.SignCert(rand.Reader, caSigner); err != nil {
-        return nil, err
-    }
+	if err := cert.SignCert(rand.Reader, caSigner); err != nil {
+		return nil, err
+	}
 
-    return cert, nil
+	return cert, nil
 }
