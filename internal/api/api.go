@@ -46,7 +46,9 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 	principals, err := c.getPrincipals(authToken)
 	if err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(errorResponse{Error: err.Error()})
+		if encErr := json.NewEncoder(w).Encode(errorResponse{Error: err.Error()}); encErr != nil {
+			c.Log.Error("failed to encode error response", "error", encErr)
+		}
 		return
 	}
 
@@ -55,7 +57,9 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 	err = json.NewDecoder(r.Body).Decode(&reqBody)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(errorResponse{Error: "failed to decode request body"})
+		if encErr := json.NewEncoder(w).Encode(errorResponse{Error: "failed to decode request body"}); encErr != nil {
+			c.Log.Error("failed to encode error response", "error", encErr)
+		}
 		return
 	}
 
@@ -63,22 +67,28 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(reqBody.PublicKey))
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(errorResponse{Error: "failed to parse public key"})
+		if encErr := json.NewEncoder(w).Encode(errorResponse{Error: "failed to parse public key"}); encErr != nil {
+			c.Log.Error("failed to encode error response", "error", encErr)
+		}
 		return
 	}
 
 	// Validate public key
 	if pubKey.Type() != ssh.KeyAlgoED25519 {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(errorResponse{Error: "only ed25519 keys are supported"})
+		if encErr := json.NewEncoder(w).Encode(errorResponse{Error: "only ed25519 keys are supported"}); encErr != nil {
+			c.Log.Error("failed to encode error response", "error", encErr)
+		}
 		return
 	}
 
-	// Sign 
+	// Sign
 	signedCert, err := signUserKey(pubKey, c.caSigner, principals)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(errorResponse{Error: "failed to sign certificate"})
+		if encErr := json.NewEncoder(w).Encode(errorResponse{Error: "failed to sign certificate"}); encErr != nil {
+			c.Log.Error("failed to encode error response", "error", encErr)
+		}
 		return
 	}
 
@@ -94,14 +104,16 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	certBytes := ssh.MarshalAuthorizedKey(signedCert)
-	json.NewEncoder(w).Encode(successResponse{SignedCert: string(certBytes)})
+	if err := json.NewEncoder(w).Encode(successResponse{SignedCert: string(certBytes)}); err != nil {
+		c.Log.Error("failed to encode success response", "error", err)
+	}
 }
 
 func (c *Controller) getPrincipals(token string) ([]string, error) {
 	if strings.HasPrefix(token, "Bearer ") {
 		token = strings.TrimPrefix(token, "Bearer ")
 	} else {
-		return nil, fmt.Errorf("Invalid auth token syntax")
+		return nil, fmt.Errorf("invalid auth token syntax")
 	}
 	principals, exists := c.allowedTokens[token]
 	if !exists {

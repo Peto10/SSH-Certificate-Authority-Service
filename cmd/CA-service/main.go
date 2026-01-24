@@ -17,13 +17,15 @@ const (
 	privateHttpsKeyFile   = certsDir + "https/localhost+2-key.pem"
 	publicHttpsCertFile   = certsDir + "https/localhost+2.pem"
 	privateKeyFile        = certsDir + "ca-key-pair/ca_key"
-	envFile = ".env"
+	envFile               = ".env"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	godotenv.Load(envFile)
+	if err := godotenv.Load(envFile); err != nil {
+		logger.Warn("failed to load .env file", "error", err)
+	}
 	allowedTokens, err := parseTokenPrincipals(os.Getenv("CA_ACCESS_TOKEN"))
 	if err != nil {
 		logger.Error("failed to parse allowed tokens from environment variable")
