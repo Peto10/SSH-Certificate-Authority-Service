@@ -9,11 +9,11 @@ import (
 )
 
 func sliceToSet(ss []string) map[string]struct{} {
-    set := make(map[string]struct{}, len(ss))
-    for _, s := range ss {
-        set[s] = struct{}{}
-    }
-    return set
+	set := make(map[string]struct{}, len(ss))
+	for _, s := range ss {
+		set[s] = struct{}{}
+	}
+	return set
 }
 
 func TestGetPrincipals(t *testing.T) {
@@ -91,7 +91,7 @@ func TestGetPrincipals(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := controller.getPrincipals(tt.token)
-			if (err != nil) {
+			if err != nil {
 				if !tt.expectErr {
 					t.Errorf("expected nil error, got %v", err)
 				}

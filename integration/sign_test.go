@@ -70,7 +70,11 @@ func doRequestAndParseError(t *testing.T, req *http.Request, expectedStatus int)
 	if err != nil {
 		t.Fatalf("failed to make request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != expectedStatus {
 		t.Errorf("expected status %d, got %d", expectedStatus, resp.StatusCode)
@@ -108,7 +112,11 @@ func TestSign_ValidRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to make request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.StatusCode)
@@ -159,7 +167,11 @@ func TestSign_InvalidHTTPMethod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to make request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected status 405, got %d", resp.StatusCode)
