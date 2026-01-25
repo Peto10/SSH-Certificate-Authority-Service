@@ -32,12 +32,12 @@ Basically it will issue short-lived SSH certificates to your infrastructure inst
 If you don't have CA keys, generate them:
 
 ```bash
-ssh-keygen -t ed25519 -f ./certs/ca-key-pair/ca_key -N ""
+ssh-keygen -t ed25519 -f ./secrets/ssh/ca_key -N ""
 ```
 
 This creates:
-- `./certs/ca-key-pair/ca_key`
-- `./certs/ca-key-pair/ca_key.pub`
+- `./secrets/ssh/ca_key`
+- `./secrets/ssh/ca_key.pub`
 
 ### 2. Generate HTTPS Certificates
 
@@ -45,16 +45,16 @@ The service runs over HTTPS. Generate self-signed certificates:
 
 ```bash
 # Using mkcert (for local development)
-mkcert -key-file ./certs/https/localhost+2-key.pem -cert-file ./certs/https/localhost+2.pem localhost 127.0.0.1 ::1
+mkcert -key-file ./secrets/https/ca-service-local.key.pem -cert-file ./secrets/https/ca-service-local.cert.pem localhost 127.0.0.1 ::1
 ```
 
 This creates:
-- `./certs/https/localhost+2-key.pem` (private key)
-- `./certs/https/localhost+2.pem` (certificate)
+- `./secrets/https/ca-service-local.key.pem` (private key)
+- `./secrets/https/ca-service-local.cert.pem` (certificate)
 
 ### 3. Create `.env` File
 
-Create a `.env` file in the project root with your authentication tokens.
+Create a `.env` file in the secrets directory with your authentication tokens.
 Tokens are used in the Authorization header.
 Principals are identities the certificate will be valid for
 
@@ -72,7 +72,7 @@ CA_ACCESS_TOKEN=prod_abc123:admin,root;test_xyz789:test-user
 ### Start the Server
 
 ```bash
-go run ./cmd/CA-service/main.go
+go run ./cmd/ca-service/main.go
 ```
 
 The service will start on `https://localhost:8443`
@@ -116,7 +116,7 @@ curl -k \
 ```bash
 make build
 # or
-go build -o bin/CA-service ./cmd/CA-service
+go build -o bin/ca-service ./cmd/ca-service
 ```
 
 ## Tests
