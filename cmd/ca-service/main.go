@@ -12,7 +12,7 @@ import (
 const (
 	defaultServerHostName = ":8443"
 	defaultURL            = "https://localhost" + defaultServerHostName
-	appSecretsDir		  = "/run/ca-service"
+	appSecretsDir         = "/run/ca-service"
 	privateHttpsKeyFile   = appSecretsDir + "/https/ca-service-local.key.pem"
 	publicHttpsCertFile   = appSecretsDir + "/https/ca-service-local.cert.pem"
 	privateKeyFile        = appSecretsDir + "/ssh/ca_key"
