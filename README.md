@@ -5,10 +5,11 @@ A lightweight SSH Certificate Authority service that signs ED25519 public keys a
 ## What It Does
 
 This service acts as a Certificate Authority (CA) that:
-- Accepts SSH public keys (ED25519 only)
-- Signs them with a CA private key
-- Issues certificates valid for 30 minutes
-- Requires authentication via bearer tokens
+
+* Accepts SSH public keys (ED25519 only)
+* Signs them with a CA private key
+* Issues certificates valid for 30 minutes
+* Requires authentication via bearer tokens
 
 Basically it will issue short-lived SSH certificates to your infrastructure instead of relying on traditional key distribution.
 
@@ -21,11 +22,13 @@ Basically it will issue short-lived SSH certificates to your infrastructure inst
 
 ## Prerequisites
 
-- Go 1.25+ (if building from source)
-- A CA private key pair (ED25519 format)
-- HTTPS certificates for the server
+* Docker
+* A CA private key pair (ED25519 format)
+* HTTPS certificates for the server
 
 ## Setup
+
+All commands below assume you are running them from the **project root directory**.
 
 ### 1. Generate CA Key Pair
 
@@ -36,21 +39,23 @@ ssh-keygen -t ed25519 -f ./secrets/ssh/ca_key -N ""
 ```
 
 This creates:
-- `./secrets/ssh/ca_key`
-- `./secrets/ssh/ca_key.pub`
+
+* `./secrets/ssh/ca_key`
+* `./secrets/ssh/ca_key.pub`
 
 ### 2. Generate HTTPS Certificates
 
 The service runs over HTTPS. Generate self-signed certificates:
 
 ```bash
-# Using mkcert (for local development)
+# You can use mkcert for local development
 mkcert -key-file ./secrets/https/ca-service-local.key.pem -cert-file ./secrets/https/ca-service-local.cert.pem localhost 127.0.0.1 ::1
 ```
 
 This creates:
-- `./secrets/https/ca-service-local.key.pem` (private key)
-- `./secrets/https/ca-service-local.cert.pem` (certificate)
+
+* `./secrets/https/ca-service-local.key.pem` (private key)
+* `./secrets/https/ca-service-local.cert.pem` (certificate)
 
 ### 3. Create `.env` File
 
@@ -63,16 +68,30 @@ Principals are identities the certificate will be valid for
 ```
 
 Example with real tokens:
+
 ```bash
 CA_ACCESS_TOKEN=prod_abc123:admin,root;test_xyz789:test-user
 ```
 
 ## Usage
 
-### Start the Server
+### Build Docker Image
 
 ```bash
-go run ./cmd/ca-service/main.go
+docker build -t ca-service:latest .
+```
+
+### Start the Server (Docker)
+
+```bash
+docker run --rm \
+  --name ca-service \
+  -p 8443:8443 \
+  --env-file "$(pwd)/secrets/.env" \
+  -v "$(pwd)/secrets/https/ca-service-local.cert.pem:/run/ca-service/https/ca-service-local.cert.pem:ro" \
+  -v "$(pwd)/secrets/https/ca-service-local.key.pem:/run/ca-service/https/ca-service-local.key.pem:ro" \
+  -v "$(pwd)/secrets/ssh/ca_key:/run/ca-service/ssh/ca_key:ro" \
+  ca-service:latest
 ```
 
 The service will start on `https://localhost:8443`
@@ -92,12 +111,14 @@ curl -k \
 ```
 
 **Parameters:**
-- `Authorization` header: Bearer token (must match a token in `CA_ACCESS_TOKEN`)
-- `public_key`: SSH public key in OpenSSH format (ED25519 only)
+
+* `Authorization` header: Bearer token (must match a token in `CA_ACCESS_TOKEN`)
+* `public_key`: SSH public key in OpenSSH format (ED25519 only)
 
 ### Response Format
 
 **Success (200 OK):**
+
 ```json
 {
   "signed_cert": "ssh-ed25519-cert-v01@openssh.com AAAAHHNzaC1lZDI1NTE5LWNlcnQtdjAxQG9wZW5zc2guY29t..."
@@ -105,25 +126,9 @@ curl -k \
 ```
 
 **Error (400+):**
+
 ```json
 {
   "error": "err msg example"
 }
-```
-
-## Building
-
-```bash
-make build
-# or
-go build -o bin/ca-service ./cmd/ca-service
-```
-
-## Tests
-
-Run tests:
-```bash
-make build
-# or
-go test ./...
 ```
