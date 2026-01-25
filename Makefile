@@ -1,6 +1,6 @@
 .PHONY: build
 build:
-	go build -o bin/CA-service ./cmd/CA-service
+	go build -o bin/ca-service ./cmd/ca-service
 
 .PHONY: test
 test:

@@ -6,26 +6,21 @@ import (
 
 	"github.com/Peto10/SSH-like-Certificate-Authority-Service/internal/api"
 	"github.com/Peto10/SSH-like-Certificate-Authority-Service/internal/server"
-	"github.com/joho/godotenv"
 	"golang.org/x/crypto/ssh"
 )
 
 const (
 	defaultServerHostName = ":8443"
 	defaultURL            = "https://localhost" + defaultServerHostName
-	certsDir              = "./certs/"
-	privateHttpsKeyFile   = certsDir + "https/localhost+2-key.pem"
-	publicHttpsCertFile   = certsDir + "https/localhost+2.pem"
-	privateKeyFile        = certsDir + "ca-key-pair/ca_key"
-	envFile               = ".env"
+	appSecretsDir		  = "/run/ca-service"
+	privateHttpsKeyFile   = appSecretsDir + "/https/ca-service-local.key.pem"
+	publicHttpsCertFile   = appSecretsDir + "/https/ca-service-local.cert.pem"
+	privateKeyFile        = appSecretsDir + "/ssh/ca_key"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	if err := godotenv.Load(envFile); err != nil {
-		logger.Warn("failed to load .env file", "error", err)
-	}
 	allowedTokens, err := parseTokenPrincipals(os.Getenv("CA_ACCESS_TOKEN"))
 	if err != nil {
 		logger.Error("failed to parse allowed tokens from environment variable")

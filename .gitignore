@@ -1,6 +1,6 @@
 bin/*
-certs/ca-key-pair/ca_key.pub
-certs/ca-key-pair/ca_key
-certs/https/localhost+2-key.pem
-certs/https/localhost+2.pem
-.env
+secrets/ssh/ca_key.pub
+secrets/ssh/ca_key
+secrets/https/ca-service-local.key.pem
+secrets/https/ca-service-local.cert.pem
+secrets/.env
