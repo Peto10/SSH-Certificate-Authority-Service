@@ -9,8 +9,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Peto10/SSH-like-Certificate-Authority-Service/internal/api"
-	"github.com/Peto10/SSH-like-Certificate-Authority-Service/internal/server"
+	"github.com/Peto10/SSH-like-Certificate-Authority-Service/internal/auth/static"
+	signerctl "github.com/Peto10/SSH-like-Certificate-Authority-Service/internal/http/controllers/signer"
+	"github.com/Peto10/SSH-like-Certificate-Authority-Service/internal/http/middleware"
+	"github.com/Peto10/SSH-like-Certificate-Authority-Service/internal/http/server"
+	signersvc "github.com/Peto10/SSH-like-Certificate-Authority-Service/internal/services/signer"
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/crypto/ssh"
 )
@@ -45,13 +48,14 @@ func TestMain(m *testing.M) {
 
 func setupTestServer(t *testing.T, allowedTokens map[string][]string) *httptest.Server {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	controller := api.NewController(logger, allowedTokens, testCASigner)
-	s := server.NewServer(controller, ":0") // :0 for random port (not used with httptest)
+	signingSvc := signersvc.NewSSHService(testCASigner)
+	controller := signerctl.NewController(logger, signingSvc)
 
-	handler := s.Handler
+	authorizer := static.NewAuthorizer(allowedTokens)
+	authMiddleware := middleware.NewMiddleware(logger, authorizer)
+	router := server.NewMux(controller, nil, authMiddleware.Middleware)
 
-	// I was thinking about creating a new TLS server but I figured that I would keep it simple even thougt I use https in the main function.
-	ts := httptest.NewServer(handler)
+	ts := httptest.NewServer(router)
 	t.Cleanup(func() { ts.Close() })
 
 	return ts

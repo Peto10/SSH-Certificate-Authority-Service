@@ -1,134 +1,110 @@
-# CA Service - SSH Certificate Authority
+# CA Service (SSH Certificate Authority)
 
-A lightweight SSH Certificate Authority service that signs ED25519 public keys and issues short-lived SSH certificates.
+HTTPS service that signs **ED25519** SSH public keys and returns short-lived SSH user certificates.
 
-## What It Does
+## Quickstart (Docker Compose)
 
-This service acts as a Certificate Authority (CA) that:
-
-* Accepts SSH public keys (ED25519 only)
-* Signs them with a CA private key
-* Issues certificates valid for 30 minutes
-* Requires authentication via bearer tokens
-
-Basically it will issue short-lived SSH certificates to your infrastructure instead of relying on traditional key distribution.
-
-## How It Works
-
-1. **Client** sends a public key + authentication token
-2. **Service** validates the token and public key
-3. **Service** signs the key with its CA private key
-4. **Client** receives a signed certificate to use for SSH authentication
-
-## Prerequisites
-
-* Docker
-* A CA private key pair (ED25519 format)
-* HTTPS certificates for the server
-
-## Setup
-
-All commands below assume you are running them from the **project root directory**.
-
-### 1. Generate CA Key Pair
-
-If you don't have CA keys, generate them:
+From the repo root:
 
 ```bash
+# 1) CA keypair (used to sign user certs)
 ssh-keygen -t ed25519 -f ./secrets/ssh/ca_key -N ""
+
+# 2) TLS cert for the HTTPS server (example using mkcert)
+mkcert -key-file ./secrets/https/ca-service-local.key.pem \
+  -cert-file ./secrets/https/ca-service-local.cert.pem \
+  localhost 127.0.0.1 ::1
+
+# 3) Configure env (see Configuration section below)
+cp ./secrets/.env.example ./secrets/.env
+
+# 4) Run
+docker compose up --build app
 ```
 
-This creates:
+## Authentication
 
-* `./secrets/ssh/ca_key`
-* `./secrets/ssh/ca_key.pub`
+Protected endpoint `POST /sign` requires:
 
-### 2. Generate HTTPS Certificates
-
-The service runs over HTTPS. Generate self-signed certificates:
-
-```bash
-# You can use mkcert for local development
-mkcert -key-file ./secrets/https/ca-service-local.key.pem -cert-file ./secrets/https/ca-service-local.cert.pem localhost 127.0.0.1 ::1
+```text
+Authorization: Bearer <token>
 ```
 
-This creates:
+There are **two** valid token types:
 
-* `./secrets/https/ca-service-local.key.pem` (private key)
-* `./secrets/https/ca-service-local.cert.pem` (certificate)
+- **Static access token**: matches a token in `CA_ACCESS_TOKEN` and maps to a list of principals.
+- **Google SSO app JWT**: obtained via Google login and verified with `APP_JWT_SECRET`.
 
-### 3. Create `.env` File
+## Configuration
 
-Create a `.env` file in the secrets directory with your authentication tokens.
-Tokens are used in the Authorization header.
-Principals are identities the certificate will be valid for
+### Static token auth (`CA_ACCESS_TOKEN`)
 
-```bash
-# Format: token:principal1,principal2;token2:principal3
+Format:
+
+```text
+CA_ACCESS_TOKEN=token:principal1,principal2;token2:principal3
 ```
 
-Example with real tokens:
+### Google SSO auth (OAuth)
 
-```bash
-CA_ACCESS_TOKEN=prod_abc123:admin,root;test_xyz789:test-user
+Required env vars:
+
+```text
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# App JWT signing (generate for example with: openssl rand -base64 32)
+APP_JWT_SECRET=                 # signs/verifies the app JWT (HMAC)
+
+# Restrict SSO to these email domains only (comma-separated, no @). Empty = reject all.
+SSO_ALLOWED_DOMAINS=example.com,gmail.com,redhat.com
 ```
 
-## Usage
+Notes:
+- The app JWT minted by SSO expires after **1 hour**.
 
-### Build Docker Image
+## Google SSO: how to get a Bearer token
 
-```bash
-docker build -t ca-service:latest .
+1. Create a Google OAuth client (Web application) - see https://developers.google.com/identity/protocols/oauth2.
+2. Add an **Authorized redirect URI**: project currently uses `https://localhost:8443/auth/google/callback`.
+3. Start the service and open `GET /auth/google/login` in your browser.
+4. After login, Google redirects to `GET /auth/google/callback`, which returns JSON containing your app token:
+
+```json
+{ "token": "<app_jwt>", "email": "user@example.com" }
 ```
 
-### Start the Server (Docker)
+Use that `token` as the Bearer token for `POST /sign`.
+
+`POST /auth/logout` exists, but it is effectively “client-side logout” (delete the token client-side).
+
+## API
+
+### Sign an SSH public key
+
+`POST /sign`
+
+- Requires `Authorization: Bearer ...`
+- Request JSON body:
+  - `public_key`: OpenSSH authorized_keys line
+  - Only **ed25519** keys are accepted
+- Principals used for the issued cert come from the auth method:
+  - static token → configured principals
+  - SSO JWT → principals from the token claim (the user email)
+
+Example:
 
 ```bash
-docker run --rm \
-  --name ca-service \
-  -p 8443:8443 \
-  --env-file "$(pwd)/secrets/.env" \
-  -v "$(pwd)/secrets/https/ca-service-local.cert.pem:/run/ca-service/https/ca-service-local.cert.pem:ro" \
-  -v "$(pwd)/secrets/https/ca-service-local.key.pem:/run/ca-service/https/ca-service-local.key.pem:ro" \
-  -v "$(pwd)/secrets/ssh/ca_key:/run/ca-service/ssh/ca_key:ro" \
-  ca-service:latest
-```
-
-The service will start on `https://localhost:8443`
-
-### Request Format
-
-Sign a public key by sending a POST request to `/sign`:
-
-```bash
-curl -k \
-  -X POST https://localhost:8443/sign \
-  -H "Authorization: Bearer your-secret-token" \
+curl -k -X POST "https://localhost:8443/sign" \
+  -H "Authorization: Bearer <static_token_or_sso_jwt>" \
   -H "Content-Type: application/json" \
-  -d '{
-    "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFmj... user@host"
-  }'
+  -d '{"public_key":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... user@host"}'
 ```
 
-**Parameters:**
+## Tests
 
-* `Authorization` header: Bearer token (must match a token in `CA_ACCESS_TOKEN`)
-* `public_key`: SSH public key in OpenSSH format (ED25519 only)
-
-### Response Format
-
-**Success (200 OK):**
-
-```json
-{
-  "signed_cert": "ssh-ed25519-cert-v01@openssh.com AAAAHHNzaC1lZDI1NTE5LWNlcnQtdjAxQG9wZW5zc2guY29t..."
-}
+```bash
+docker compose run --rm --build test
 ```
 
-**Error (400+):**
-
-```json
-{
-  "error": "err msg example"
-}
-```
+SSO integration tests will auto-skip unless `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APP_JWT_SECRET`, and `SSO_ALLOWED_DOMAINS` are set.

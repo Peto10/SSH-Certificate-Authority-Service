@@ -1,11 +1,12 @@
-package main
+package static
 
 import (
-	"github.com/google/go-cmp/cmp"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
-func TestParseTokenPrincipals(t *testing.T) {
+func TestParseStaticTokenPrincipals(t *testing.T) {
 	tests := []struct {
 		name           string
 		input          string
@@ -36,8 +37,8 @@ func TestParseTokenPrincipals(t *testing.T) {
 		{
 			name:           "empty string",
 			input:          "",
-			expectedResult: map[string][]string{},
-			expectErr:      false,
+			expectedResult: nil,
+			expectErr:      true,
 		},
 		{
 			name:           "invalid format - missing colon",
@@ -83,7 +84,7 @@ func TestParseTokenPrincipals(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := parseTokenPrincipals(tt.input)
+			result, err := ParseStaticTokenPrincipals(tt.input)
 			if err != nil {
 				if !tt.expectErr {
 					t.Errorf("expected nil error, got %v", err)
