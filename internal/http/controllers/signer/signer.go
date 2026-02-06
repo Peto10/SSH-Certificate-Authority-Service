@@ -1,25 +1,19 @@
-package api
+package signer
 
 import (
-	"crypto/rand"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
+	"github.com/Peto10/SSH-like-Certificate-Authority-Service/internal/http/middleware"
+	"github.com/Peto10/SSH-like-Certificate-Authority-Service/internal/services/signer"
 	"golang.org/x/crypto/ssh"
 )
 
-const (
-	certValidityDuration = 30 * time.Minute
-)
-
-type Controller struct {
-	Log           *slog.Logger
-	allowedTokens map[string][]string
-	caSigner      ssh.Signer
+type SignerController struct {
+	Log    *slog.Logger
+	signer signer.Signer
 }
 
 type requestBody struct {
@@ -34,27 +28,25 @@ type successResponse struct {
 	SignedCert string `json:"signed_cert,omitempty"`
 }
 
-func NewController(logger *slog.Logger, allowedTokens map[string][]string, caSigner ssh.Signer) *Controller {
-	return &Controller{Log: logger, allowedTokens: allowedTokens, caSigner: caSigner}
+func NewController(logger *slog.Logger, signer signer.Signer) *SignerController {
+	return &SignerController{Log: logger, signer: signer}
 }
 
-func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
+// Sign handles POST /sign: returns a signed SSH certificate.
+func (c *SignerController) Sign(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Get authentication token and corresponding principals
-	authToken := r.Header.Get("Authorization")
-	principals, err := c.getPrincipals(authToken)
-	if err != nil {
+	principals, ok := middleware.PrincipalsFromContext(r.Context())
+	if !ok {
 		w.WriteHeader(http.StatusUnauthorized)
-		if encErr := json.NewEncoder(w).Encode(errorResponse{Error: err.Error()}); encErr != nil {
+		if encErr := json.NewEncoder(w).Encode(errorResponse{Error: "unauthorized"}); encErr != nil {
 			c.Log.Error("failed to encode error response", "error", encErr)
 		}
 		return
 	}
 
-	// Decode request body
 	var reqBody requestBody
-	err = json.NewDecoder(r.Body).Decode(&reqBody)
+	err := json.NewDecoder(r.Body).Decode(&reqBody)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		if encErr := json.NewEncoder(w).Encode(errorResponse{Error: "failed to decode request body"}); encErr != nil {
@@ -63,7 +55,6 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse public key
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(reqBody.PublicKey))
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -73,7 +64,6 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate public key
 	if pubKey.Type() != ssh.KeyAlgoED25519 {
 		w.WriteHeader(http.StatusBadRequest)
 		if encErr := json.NewEncoder(w).Encode(errorResponse{Error: "only ed25519 keys are supported"}); encErr != nil {
@@ -82,8 +72,7 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sign
-	signedCert, err := signUserKey(pubKey, c.caSigner, principals)
+	signedCert, err := c.signer.SignUserKey(pubKey, principals)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		if encErr := json.NewEncoder(w).Encode(errorResponse{Error: "failed to sign certificate"}); encErr != nil {
@@ -92,7 +81,6 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Log certificate details
 	issuedAt := time.Unix(int64(signedCert.ValidAfter), 0)
 	expiresAt := time.Unix(int64(signedCert.ValidBefore), 0)
 	c.Log.Info("certificate issued",
@@ -107,39 +95,4 @@ func (c *Controller) Sign(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(successResponse{SignedCert: string(certBytes)}); err != nil {
 		c.Log.Error("failed to encode success response", "error", err)
 	}
-}
-
-func (c *Controller) getPrincipals(token string) ([]string, error) {
-	if strings.HasPrefix(token, "Bearer ") {
-		token = strings.TrimPrefix(token, "Bearer ")
-	} else {
-		return nil, fmt.Errorf("invalid auth token syntax")
-	}
-	principals, exists := c.allowedTokens[token]
-	if !exists {
-		return nil, fmt.Errorf("access token not valid or has no principals")
-	}
-	return principals, nil
-}
-
-func signUserKey(
-	userPubKey ssh.PublicKey,
-	caSigner ssh.Signer,
-	principals []string,
-) (*ssh.Certificate, error) {
-
-	cert := &ssh.Certificate{
-		Key:             userPubKey,
-		CertType:        ssh.UserCert,
-		Serial:          uint64(time.Now().UnixNano()),
-		ValidPrincipals: principals,
-		ValidAfter:      uint64(time.Now().Unix()),
-		ValidBefore:     uint64(time.Now().Add(certValidityDuration).Unix()),
-	}
-
-	if err := cert.SignCert(rand.Reader, caSigner); err != nil {
-		return nil, err
-	}
-
-	return cert, nil
 }

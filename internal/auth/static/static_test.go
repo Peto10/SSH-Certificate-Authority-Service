@@ -1,8 +1,6 @@
-package api
+package static
 
 import (
-	"log/slog"
-	"os"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -16,15 +14,14 @@ func sliceToSet(ss []string) map[string]struct{} {
 	return set
 }
 
-func TestGetPrincipals(t *testing.T) {
+func TestAuthorizer_Authorize(t *testing.T) {
 	allowedTokens := map[string][]string{
 		"valid-token-1": {"user1", "admin"},
 		"valid-token-2": {"user2"},
 		"empty-token":   {},
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	controller := NewController(logger, allowedTokens, nil)
+	authorizer := NewAuthorizer(allowedTokens)
 
 	tests := []struct {
 		name           string
@@ -87,26 +84,19 @@ func TestGetPrincipals(t *testing.T) {
 			expectErr:      true,
 		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := controller.getPrincipals(tt.token)
-			if err != nil {
-				if !tt.expectErr {
-					t.Errorf("expected nil error, got %v", err)
-				}
+			result, err := authorizer.Authorize(tt.token)
+			if err != nil && !tt.expectErr {
+				t.Errorf("expected nil error, got %v", err)
 				return
 			}
-
-			if tt.expectErr {
+			if err == nil && tt.expectErr {
 				t.Errorf("expected error, got %v", err)
 				return
 			}
-
-			// convert slice to set for order insensitivity
 			if !cmp.Equal(sliceToSet(result), sliceToSet(tt.expectedResult)) {
-				t.Errorf("getPrincipals() result = %v, expectedResult = %v", result, tt.expectedResult)
-				return
+				t.Errorf("Authorize() result = %v, expectedResult = %v", result, tt.expectedResult)
 			}
 		})
 	}
